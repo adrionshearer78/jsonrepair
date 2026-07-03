@@ -4,6 +4,7 @@ import {
   isDelimiter,
   isDigit,
   isDoubleQuote,
+  isDoubleQuoteEntity,
   isDoubleQuoteLike,
   isFunctionNameChar,
   isFunctionNameCharStart,
@@ -11,6 +12,7 @@ import {
   isInsideUnclosedBracket,
   isQuote,
   isSingleQuote,
+  isSingleQuoteEntity,
   isSingleQuoteLike,
   isSpecialWhitespace,
   isStartOfValue,
@@ -18,6 +20,8 @@ import {
   isValidStringCharacter,
   isWhitespace,
   isWhitespaceExceptNewline,
+  matchHtmlEntity,
+  maxHtmlEntityLength,
   regexUrlChar,
   regexUrlStart
 } from '../utils/stringUtils.js'
@@ -625,6 +629,15 @@ export function jsonrepairCore({
   }
 
   /**
+   * Read a small window of buffered input at the given index to detect an HTML
+   * entity, clamped so it never reads past the buffered input.
+   */
+  function htmlEntityWindow(at: number): string {
+    const max = Math.min(at + maxHtmlEntityLength, input.currentLength())
+    return at < max ? input.substring(at, max) : ''
+  }
+
+  /**
    * Parse a string enclosed by double quotes "...". Can contain escaped quotes
    * Repair strings enclosed in single quotes or special quotes
    * Repair an escaped string
@@ -645,7 +658,12 @@ export function jsonrepairCore({
       skipEscapeChars = true
     }
 
-    if (isQuote(input.charAt(i))) {
+    // a string can be opened by a quote character, or by an HTML entity that
+    // decodes to a quote (like &quot;) when repairing HTML-encoded JSON
+    const openEntity = input.charAt(i) === '&' ? matchHtmlEntity(htmlEntityWindow(i)) : null
+    const openedByEntity = isDoubleQuoteEntity(openEntity) || isSingleQuoteEntity(openEntity)
+
+    if (isQuote(input.charAt(i)) || openedByEntity) {
       // double quotes are correct JSON,
       // single quotes come from JavaScript for example, we assume it will have a correct single end quote too
       // otherwise, we will match any double-quote-like start with a double-quote-like end,
@@ -662,7 +680,8 @@ export function jsonrepairCore({
       const oBefore = output.length()
 
       output.push('"')
-      i++
+      // when opened by an entity, skip past the whole entity; otherwise skip the quote
+      i += openedByEntity && openEntity ? openEntity.length : 1
 
       while (true) {
         if (input.isEnd(i)) {
@@ -692,13 +711,20 @@ export function jsonrepairCore({
           return stack.update(Caret.afterValue)
         }
 
-        if (isEndQuote(input.charAt(i))) {
+        // inside an entity-opened string a '&' is an entity; it is the end quote
+        // when it decodes to the opening quote
+        const entity =
+          openedByEntity && input.charAt(i) === '&' ? matchHtmlEntity(htmlEntityWindow(i)) : null
+        const isEnd =
+          entity && openEntity ? entity.char === openEntity.char : isEndQuote(input.charAt(i))
+
+        if (isEnd) {
           // end quote
           // let us check what is before and after the quote to verify whether this is a legit end quote
           const iQuote = i
           const oQuote = output.length()
           output.push('"')
-          i++
+          i += entity ? entity.length : 1
 
           parseWhitespaceAndSkipComments(false)
 
@@ -744,7 +770,7 @@ export function jsonrepairCore({
 
           // revert to right after the quote but before any whitespace, and continue parsing the string
           output.remove(oQuote + 1)
-          i = iQuote + 1
+          i = iQuote + (entity ? entity.length : 1)
 
           // repair unescaped quote
           output.insertAt(oQuote, '\\')
@@ -769,6 +795,18 @@ export function jsonrepairCore({
           parseConcatenatedString()
 
           return stack.update(Caret.afterValue)
+        } else if (entity) {
+          // decode an HTML entity inside the string as content
+          const char = entity.char
+          if (char === '"') {
+            // repair unescaped double quote
+            output.push('\\"')
+          } else if (isControlCharacter(char)) {
+            output.push(controlCharacters[char])
+          } else {
+            output.push(char)
+          }
+          i += entity.length
         } else if (input.charAt(i) === '\\') {
           // handle escaped content like \n or \u2605
           const char = input.charAt(i + 1)
