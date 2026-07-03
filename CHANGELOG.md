@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [3.15.0](https://github.com/josdejong/jsonrepair/compare/v3.14.1...v3.15.0) (2026-07-03)
+
+
+### Features
+
+* [#157](https://github.com/josdejong/jsonrepair/issues/157) repair JSON with HTML-encoded entities ([#168](https://github.com/josdejong/jsonrepair/issues/168)) ([1ca4041](https://github.com/josdejong/jsonrepair/commit/1ca4041096435cbd5c49384a4811fae47be2bbf2))
+
+
+### Bug Fixes
+
+* infinite recursion when a string is followed by a backslash ([#175](https://github.com/josdejong/jsonrepair/issues/175)) ([f213160](https://github.com/josdejong/jsonrepair/commit/f213160ce73e2b5488c022df9e54347e1acc2c83))
+
 ### [3.14.1](https://github.com/josdejong/jsonrepair/compare/v3.14.0...v3.14.1) (2026-06-25)
 
 
